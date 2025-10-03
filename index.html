@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Startup KPI Dashboard</title>
+  <!--
+    Single-file responsive dashboard app
+    - English UI text per user request
+    - HTML + CSS + JavaScript only
+    - Data persisted in localStorage
+    - Charts rendered with Chart.js (CDN). If offline, app still renders the rest of the UI; charts require network for CDN.
+    - Inline comments explain what each block does
+  -->
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #121a2d;
+      --muted: #94a3b8;
+      --text: #e2e8f0;
+      --accent: #60a5fa;
+      --good: #16a34a;
+      --bad: #dc2626;
+      --warn: #f59e0b;
+      --ring: rgba(96,165,250,0.5);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+      background: radial-gradient(1200px 900px at 10% -5%, #0f1a35 0%, var(--bg) 40%),
+                  radial-gradient(900px 700px at 110% -10%, #0c1340 0%, transparent 60%),
+                  var(--bg);
+      line-height: 1.4;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    h1 { font-size: clamp(1.4rem, 1.4rem + 1vw, 2rem); margin: 0; }
+    .sub { color: var(--muted); font-size: 0.95rem; }
+
+    /* KPI cards grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    @media (max-width: 1000px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 540px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: linear-gradient(180deg, #121a2d 0%, #0f172a 100%);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 14px 16px;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.02);
+    }
+
+    .kpi-title { color: var(--muted); font-size: 0.85rem; }
+    .kpi-value { font-size: 1.4rem; font-weight: 700; margin-top: 2px; }
+    .kpi-sub { font-size: 0.85rem; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+    .arrow { font-weight: 800; }
+
+    /* Toggle bar for chart selection */
+    .toggle-bar {
+      margin-top: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .toggle {
+      border: 1px solid rgba(255,255,255,0.08);
+      background: #0e1526;
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform .06s ease, border-color .2s ease;
+      font-size: 0.95rem;
+    }
+    .toggle.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--ring);
+    }
+    .toggle:active { transform: translateY(1px); }
+
+    .chart-wrap { margin-top: 14px; }
+    .chart-card { padding: 10px; }
+
+    /* Narrative sections */
+    .narrative {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    @media (max-width: 900px) { .narrative { grid-template-columns: 1fr; } }
+
+    .narrative h3 { margin: 0 0 8px; font-size: 1.05rem; letter-spacing: .3px; }
+    .narrative p { margin: 0; color: #d0d8e5; }
+
+    /* Floating "+" action button for adding data */
+    .fab {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, #2563eb, #60a5fa);
+      color: white;
+      font-size: 30px;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(37, 99, 235, 0.45);
+    }
+
+    /* Modal for data entry */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(11, 18, 32, 0.6);
+      display: none; /* shown via JS */
+      place-items: center; padding: 12px;
+    }
+    .modal {
+      width: 100%; max-width: 520px;
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px; padding: 16px;
+    }
+    .modal h3 { margin: 0 0 10px; }
+    .grid { display: grid; gap: 10px; }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 560px) { .grid.two { grid-template-columns: 1fr; } }
+
+    label { font-size: 0.85rem; color: var(--muted); }
+    input {
+      width: 100%;
+      background: #0b1324;
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+    .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+    .btn { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; }
+    .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+    /* Helper chips under header */
+    .legend { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); margin-top: 8px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; background: #0b1324; border: 1px solid rgba(255,255,255,0.08); padding: 6px 10px; border-radius: 999px; font-size: 0.85rem; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+      /* Excel-style editable table */
+    .table-wrap { overflow-x: auto; margin-top: 12px; }
+    table.sheet { width: 100%; border-collapse: collapse; min-width: 720px; }
+    table.sheet th, table.sheet td { border: 1px solid rgba(255,255,255,0.08); padding: 8px 10px; text-align: left; }
+    table.sheet thead th { position: sticky; top: 0; background: #0f172a; z-index: 1; font-weight: 600; }
+    table.sheet input { width: 100%; background: #0b1324; border: 1px solid rgba(255,255,255,0.08); color: var(--text); border-radius: 8px; padding: 8px 10px; }
+    table.sheet .actions { white-space: nowrap; }
+    .btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Startup KPI Dashboard</h1>
+        <div class="sub">Last 6 Months · Data saved locally · Mobile-friendly</div>
+        <div class="legend">
+          <span class="chip"><span class="dot" style="background: var(--good);"></span>Positive</span>
+          <span class="chip"><span class="dot" style="background: var(--bad);"></span>Negative</span>
+          <span class="chip">Trend arrows indicate change vs previous month</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- KPI cards at the VERY TOP -->
+    <section class="kpi-grid" id="kpiCards">
+      <!-- Populated by JS -->
+    </section>
+
+    <!-- Toggle buttons directly under KPI table -->
+    <div class="toggle-bar">
+      <button class="toggle active" data-chart="mrr">MRR (Line)</button>
+      <button class="toggle" data-chart="cust">New Customers & Churn (Bar)</button>
+      <button class="toggle" data-chart="opex">Operating Expenses (Column)</button>
+      <button class="toggle" data-chart="cash">Cash Balance (Column)</button>
+    </div>
+
+    <!-- Single chart area that switches content based on toggle -->
+    <div class="chart-wrap">
+      <div class="card chart-card">
+        <canvas id="chart" height="140"></canvas>
+      </div>
+    </div>
+
+    <!-- Narrative sections -->
+    <section class="narrative">
+      <div class="card">
+        <h3>WHAT HAPPENED?</h3>
+        <p id="whatHappened">—</p>
+      </div>
+      <div class="card">
+        <h3>WHAT WILL HAPPEN?</h3>
+        <p id="whatWillHappen">—</p>
+      </div>
+    </section>
+
+    <!-- Excel-style data entry (added below sample/narratives) -->
+    <section class="card" style="margin-top:14px;">
+      <h3>Excel-style Data Editor</h3>
+      <p class="sub">Edit cells directly. Use <strong>MMM YYYY</strong> (e.g., <em>Jan 2026</em>) for Month. Click <em>Save Changes</em> to persist.</p>
+      <div class="table-wrap">
+        <table class="sheet" id="dataSheet">
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Monthly Recurring Revenue (MRR)</th>
+              <th>Operating Expenses</th>
+              <th>New Customers Acquired</th>
+              <th>Customer Churn (Lost Customers)</th>
+              <th>Cash Balance</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <button class="btn" id="addRowBtn">Add Row</button>
+        <button class="btn primary" id="saveSheetBtn">Save Changes</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Floating action button for adding data -->
+  <button class="fab" id="addFab" title="Add data">+</button>
+
+  <!-- Modal markup (hidden by default) -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h3>Add / Edit Month</h3>
+      <div class="grid">
+        <label>Month (e.g., Jan 2026)
+          <input id="fMonth" placeholder="MMM YYYY" />
+        </label>
+        <div class="grid two">
+          <label>Monthly Recurring Revenue (MRR)
+            <input id="fMRR" type="number" step="0.01" />
+          </label>
+          <label>Operating Expenses
+            <input id="fOpEx" type="number" step="0.01" />
+          </label>
+        </div>
+        <div class="grid two">
+          <label>New Customers Acquired
+            <input id="fNew" type="number" step="1" />
+          </label>
+          <label>Customer Churn (Lost Customers)
+            <input id="fChurn" type="number" step="1" />
+          </label>
+        </div>
+        <label>Cash Balance
+          <input id="fCash" type="number" step="0.01" />
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn primary" id="saveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart.js CDN (single tag keeps the app a single HTML file) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <script>
+    // ------------------------------
+    // 1) DEFAULT SEED DATA (from the provided Excel attachment)
+    //    On first load, we store this in localStorage so the app is pre-populated.
+    // ------------------------------
+    const SEED_DATA = [
+      { Month: 'Jan 2025', 'Monthly Recurring Revenue (MRR)': 12000, 'New Customers Acquired': 40, 'Customer Churn (Lost Customers)': 15, 'Operating Expenses': 8000, 'Cash Balance': 50000 },
+      { Month: 'Feb 2025', 'Monthly Recurring Revenue (MRR)': 13500, 'New Customers Acquired': 45, 'Customer Churn (Lost Customers)': 18, 'Operating Expenses': 8200, 'Cash Balance': 47000 },
+      { Month: 'Mar 2025', 'Monthly Recurring Revenue (MRR)': 14500, 'New Customers Acquired': 50, 'Customer Churn (Lost Customers)': 20, 'Operating Expenses': 8500, 'Cash Balance': 43000 },
+      { Month: 'Apr 2025', 'Monthly Recurring Revenue (MRR)': 13800, 'New Customers Acquired': 42, 'Customer Churn (Lost Customers)': 25, 'Operating Expenses': 8700, 'Cash Balance': 39000 },
+      { Month: 'May 2025', 'Monthly Recurring Revenue (MRR)': 13000, 'New Customers Acquired': 38, 'Customer Churn (Lost Customers)': 30, 'Operating Expenses': 9000, 'Cash Balance': 34000 },
+      { Month: 'Jun 2025', 'Monthly Recurring Revenue (MRR)': 11800, 'New Customers Acquired': 30, 'Customer Churn (Lost Customers)': 40, 'Operating Expenses': 9200, 'Cash Balance': 28000 }
+    ];
+
+    // LocalStorage key
+    const LS_KEY = 'startupMetrics';
+
+    // Get data from localStorage or seed it
+    function getData() {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) {
+        localStorage.setItem(LS_KEY, JSON.stringify(SEED_DATA));
+        return [...SEED_DATA];
+      }
+      try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [...SEED_DATA];
+      } catch { return [...SEED_DATA]; }
+    }
+
+    // Save data back to localStorage
+    function setData(arr) {
+      localStorage.setItem(LS_KEY, JSON.stringify(arr));
+    }
+
+    // Parse "MMM YYYY" into a Date (assumes day 1)
+    function parseMonth(m) {
+      // Robust parsing for strings like "Jan 2025"
+      try {
+        const [monStr, yearStr] = m.trim().split(/\s+/);
+        const monthIndex = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(monStr.slice(0,3).toLowerCase());
+        const year = parseInt(yearStr, 10);
+        if (monthIndex < 0 || isNaN(year)) return null;
+        return new Date(year, monthIndex, 1);
+      } catch { return null; }
+    }
+
+    // Format a Date back to "MMM YYYY"
+    function fmtMonth(d) {
+      const MMM = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${MMM[d.getMonth()]} ${d.getFullYear()}`;
+    }
+
+    // Make a shallow copy and sort by month ascending
+    function sortByMonth(data) {
+      return [...data].sort((a,b) => (parseMonth(a.Month) - parseMonth(b.Month)));
+    }
+
+    // Compute deltas vs previous month
+    function deltas(vals) {
+      return vals.map((v,i) => (i===0 ? 0 : v - vals[i-1]));
+    }
+
+    // Determine color per data point based on metric and trend
+    function pointColors(metricKey, vals) {
+      // Positive if value increased (for MRR, New, Cash), negative if value increased (for Churn, OpEx)
+      const increasingGood = ['Monthly Recurring Revenue (MRR)', 'New Customers Acquired', 'Cash Balance'];
+      const incGood = increasingGood.includes(metricKey);
+      const ds = deltas(vals);
+      return ds.map((d,i) => {
+        if (i===0) return '#64748b'; // neutral for first month
+        const good = incGood ? d >= 0 : d <= 0;
+        return good ? '#16a34a' : '#dc2626';
+      });
+    }
+
+    // Add emoji arrows for trend
+    function arrowForDelta(d) {
+      if (d > 0) return '▲';
+      if (d < 0) return '▼';
+      return '→';
+    }
+
+    // Sum helper
+    const sum = arr => arr.reduce((a,b)=>a+b,0);
+
+    // Average helper
+    const avg = arr => arr.length ? sum(arr)/arr.length : 0;
+
+    // Round to 1 decimal if needed
+    const r1 = n => Math.round(n * 10)/10;
+
+    // Global chart instance
+    let chart;
+
+    // Render KPI cards
+    function renderKPIs(data) {
+      const el = document.getElementById('kpiCards');
+      el.innerHTML = '';
+      const sorted = sortByMonth(data);
+
+      const mrr = sorted.map(x => +x['Monthly Recurring Revenue (MRR)']);
+      const opex = sorted.map(x => +x['Operating Expenses']);
+      const cash = sorted.map(x => +x['Cash Balance']);
+      const newc = sorted.map(x => +x['New Customers Acquired']);
+
+      // Calculations as specified
+      const totalRevenue = sum(mrr);
+      const avgBurn = avg(opex); // per requirement: average operating expenses
+      const currentCash = cash[cash.length - 1] || 0;
+      const runwayMonths = avgBurn > 0 ? currentCash / avgBurn : 0;
+
+      // Growth indications (first vs last)
+      const custGrowth = newc.length > 1 ? newc[newc.length-1] - newc[0] : 0; // simple trend signal
+      const netRevGrowth = mrr.length > 1 ? mrr[mrr.length-1] - mrr[0] : 0;
+
+      // Helper to craft a KPI card
+      const makeCard = (title, valueStr, subLabel, subDelta) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="kpi-title">${title}</div>
+          <div class="kpi-value">${valueStr}</div>
+          <div class="kpi-sub"><span class="arrow">${arrowForDelta(subDelta)}</span> ${subLabel}</div>
+        `;
+        el.appendChild(card);
+      };
+
+      // KPI 1: Total Revenue
+      makeCard('Total Revenue', `$${totalRevenue.toLocaleString()}`, 'vs previous month MRR change', (mrr[mrr.length-1] - (mrr[mrr.length-2]||0)));
+
+      // KPI 2: Average Monthly Burn Rate
+      makeCard('Average Monthly Burn Rate', `$${r1(avgBurn).toLocaleString()}`, 'OpEx change last month', (opex[opex.length-1] - (opex[opex.length-2]||0)));
+
+      // KPI 3: Runway (months)
+      makeCard('Runway', `${r1(runwayMonths)} months`, 'Cash change last month', (cash[cash.length-1] - (cash[cash.length-2]||0)));
+
+      // KPI 4: Customer & Revenue Growth
+      const cgTxt = custGrowth === 0 ? 'Flat customer trend' : (custGrowth > 0 ? 'Growing customers' : 'Declining customers');
+      const rgDelta = netRevGrowth; // positive means growing MRR over period
+      const rgTxt = rgDelta === 0 ? 'Net revenue flat' : (rgDelta > 0 ? 'Net revenue growing' : 'Net revenue declining');
+      makeCard('Growth Snapshot', `${cgTxt} · ${rgTxt}`, 'Signal over period', rgDelta);
+    }
+
+    // Render the active chart based on a key
+    function renderChart(data, key) {
+      const ctx = document.getElementById('chart');
+      const sorted = sortByMonth(data);
+      const labels = sorted.map(x => x.Month);
+
+      // Destroy existing chart if any
+      if (chart) { chart.destroy(); }
+
+      // Helpers for datasets
+      const dsColors = (metricKey, vals) => pointColors(metricKey, vals);
+
+      if (key === 'mrr') {
+        const vals = sorted.map(x => +x['Monthly Recurring Revenue (MRR)']);
+        const cols = dsColors('Monthly Recurring Revenue (MRR)', vals);
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets: [{
+            label: 'MRR', data: vals, borderWidth: 2, fill: false,
+            borderColor: '#60a5fa', pointRadius: 4,
+            pointBackgroundColor: cols,
+          }]},
+          options: baseOptions('line')
+        });
+      }
+      else if (key === 'cust') {
+        const newVals = sorted.map(x => +x['New Customers Acquired']);
+        const churnVals = sorted.map(x => +x['Customer Churn (Lost Customers)']);
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [
+            { label: 'New Customers', data: newVals, backgroundColor: pointColors('New Customers Acquired', newVals) },
+            { label: 'Churn', data: churnVals, backgroundColor: pointColors('Customer Churn (Lost Customers)', churnVals) }
+          ]},
+          options: baseOptions('bar')
+        });
+      }
+      else if (key === 'opex') {
+        const vals = sorted.map(x => +x['Operating Expenses']);
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'Operating Expenses', data: vals, backgroundColor: pointColors('Operating Expenses', vals) }]},
+          options: baseOptions('bar')
+        });
+      }
+      else if (key === 'cash') {
+        const vals = sorted.map(x => +x['Cash Balance']);
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets: [{ label: 'Cash Balance', data: vals, backgroundColor: pointColors('Cash Balance', vals) }]},
+          options: baseOptions('bar')
+        });
+      }
+    }
+
+    // Shared chart options + plugin to draw tiny up/down arrows above points
+    function baseOptions(kind) {
+      return {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+          x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+          y: { beginAtZero: true, ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } }
+        },
+        plugins: {
+          legend: { labels: { color: '#e2e8f0' } },
+          tooltip: { callbacks: {
+            label: (ctx) => {
+              // Show delta arrows compared to previous
+              const idx = ctx.dataIndex;
+              const val = ctx.raw;
+              const data = ctx.dataset.data;
+              const prev = data[Math.max(0, idx-1)];
+              const d = idx === 0 ? 0 : (val - prev);
+              return `${ctx.dataset.label}: ${val.toLocaleString()} (${arrowForDelta(d)} ${d.toLocaleString()})`;
+            }
+          } }
+        }
+      };
+    }
+
+    // Build narrative from data automatically
+    function renderNarrative(data) {
+      const sorted = sortByMonth(data);
+      const months = sorted.map(x => x.Month);
+      const mrr = sorted.map(x => +x['Monthly Recurring Revenue (MRR)']);
+      const newc = sorted.map(x => +x['New Customers Acquired']);
+      const churn = sorted.map(x => +x['Customer Churn (Lost Customers)']);
+      const opex = sorted.map(x => +x['Operating Expenses']);
+      const cash = sorted.map(x => +x['Cash Balance']);
+
+      // WHAT HAPPENED: detect notable negatives (spikes in churn, drops in MRR)
+      const badMonths = [];
+      churn.forEach((v,i) => {
+        const prev = i>0 ? churn[i-1] : v;
+        if (i>0 && v >= prev * 1.25) badMonths.push(months[i]); // churn up >=25%
+      });
+      mrr.forEach((v,i) => {
+        const prev = i>0 ? mrr[i-1] : v;
+        if (i>0 && v <= prev * 0.95) badMonths.push(months[i]); // MRR down >=5%
+      });
+      const uniqBad = [...new Set(badMonths)];
+
+      const happened = uniqBad.length
+        ? `Churn and/or MRR deterioration observed in ${uniqBad.join(', ')}. Overall, MRR peaked in ${months[mrr.indexOf(Math.max(...mrr))]} and then declined, while churn trended upward toward ${months[months.length-1]}.`
+        : `No major negative spikes detected. MRR and customers remained relatively stable across the period.`;
+
+      document.getElementById('whatHappened').textContent = happened;
+
+      // WHAT WILL HAPPEN: project runway month
+      const avgBurn = avg(opex); // as required: avg OpEx
+      const currentCash = cash[cash.length - 1] || 0;
+      const runwayMonths = avgBurn > 0 ? currentCash / avgBurn : 0;
+      const lastDate = parseMonth(months[months.length-1]) || new Date();
+      const endDate = new Date(lastDate);
+      endDate.setMonth(endDate.getMonth() + Math.ceil(runwayMonths));
+      const will = runwayMonths > 0
+        ? `Runway likely ends around ${fmtMonth(endDate)} based on average operating expenses.`
+        : `Runway cannot be estimated (missing or zero expenses).`;
+      document.getElementById('whatWillHappen').textContent = will;
+    }
+
+    // Toggle interaction
+    function setupToggles(data) {
+      const buttons = [...document.querySelectorAll('.toggle')];
+      buttons.forEach(btn => btn.addEventListener('click', () => {
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderChart(data, btn.dataset.chart);
+      }));
+    }
+
+    // Modal logic
+    function setupModal(data) {
+      const modal = document.getElementById('modal');
+      const openBtn = document.getElementById('addFab');
+      const cancelBtn = document.getElementById('cancelBtn');
+      const saveBtn = document.getElementById('saveBtn');
+
+      const fMonth = document.getElementById('fMonth');
+      const fMRR = document.getElementById('fMRR');
+      const fOpEx = document.getElementById('fOpEx');
+      const fNew = document.getElementById('fNew');
+      const fChurn = document.getElementById('fChurn');
+      const fCash = document.getElementById('fCash');
+
+      const open = () => { modal.style.display = 'grid'; };
+      const close = () => { modal.style.display = 'none'; };
+
+      openBtn.addEventListener('click', open);
+      cancelBtn.addEventListener('click', close);
+      modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+      saveBtn.addEventListener('click', () => {
+        const month = (fMonth.value||'').trim();
+        const parsed = parseMonth(month);
+        if (!parsed) { alert('Please enter Month as "MMM YYYY" (e.g., Jan 2026).'); return; }
+
+        // build record
+        const rec = {
+          Month: fmtMonth(parsed),
+          'Monthly Recurring Revenue (MRR)': +fMRR.value || 0,
+          'New Customers Acquired': +fNew.value || 0,
+          'Customer Churn (Lost Customers)': +fChurn.value || 0,
+          'Operating Expenses': +fOpEx.value || 0,
+          'Cash Balance': +fCash.value || 0
+        };
+
+        // upsert by month
+        let existing = getData();
+        const idx = existing.findIndex(x => x.Month === rec.Month);
+        if (idx >= 0) existing[idx] = rec; else existing.push(rec);
+        existing = sortByMonth(existing);
+        setData(existing);
+
+        // re-render everything
+        renderAll();
+        close();
+
+        // clear inputs
+        [fMonth, fMRR, fOpEx, fNew, fChurn, fCash].forEach(i => i.value = '');
+      });
+    }
+
+    // Render Excel-style sheet
+    function renderSheet(data) {
+      const tbody = document.querySelector('#dataSheet tbody');
+      tbody.innerHTML = '';
+      const sorted = sortByMonth(data);
+      sorted.forEach((rec, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input value="${rec.Month}" data-field="Month" /></td>
+          <td><input type="number" step="0.01" value="${+rec['Monthly Recurring Revenue (MRR)']||0}" data-field="Monthly Recurring Revenue (MRR)" /></td>
+          <td><input type="number" step="0.01" value="${+rec['Operating Expenses']||0}" data-field="Operating Expenses" /></td>
+          <td><input type="number" step="1" value="${+rec['New Customers Acquired']||0}" data-field="New Customers Acquired" /></td>
+          <td><input type="number" step="1" value="${+rec['Customer Churn (Lost Customers)']||0}" data-field="Customer Churn (Lost Customers)" /></td>
+          <td><input type="number" step="0.01" value="${+rec['Cash Balance']||0}" data-field="Cash Balance" /></td>
+          <td class="actions">
+            <button class="btn danger" data-action="delete" data-month="${rec.Month}">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Hook up add/delete/save actions for the sheet
+    function setupSheet() {
+      const addBtn = document.getElementById('addRowBtn');
+      const saveBtn = document.getElementById('saveSheetBtn');
+      const tbody = document.querySelector('#dataSheet tbody');
+
+      addBtn.onclick = () => {
+        // Add a blank row for quick entry
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input placeholder="MMM YYYY" data-field="Month" /></td>
+          <td><input type="number" step="0.01" data-field="Monthly Recurring Revenue (MRR)" /></td>
+          <td><input type="number" step="0.01" data-field="Operating Expenses" /></td>
+          <td><input type="number" step="1" data-field="New Customers Acquired" /></td>
+          <td><input type="number" step="1" data-field="Customer Churn (Lost Customers)" /></td>
+          <td><input type="number" step="0.01" data-field="Cash Balance" /></td>
+          <td class="actions">
+            <button class="btn danger" data-action="delete">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      };
+
+      // Delegate delete button inside table
+      tbody.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action="delete"]');
+        if (!btn) return;
+        const row = btn.closest('tr');
+        if (!row) return;
+        row.remove();
+      });
+
+      // Save: read all rows and persist
+      saveBtn.onclick = () => {
+        const rows = [...tbody.querySelectorAll('tr')];
+        const newData = [];
+        for (const row of rows) {
+          const cells = row.querySelectorAll('input');
+          const rec = {};
+          cells.forEach(inp => {
+            const key = inp.dataset.field;
+            let val = inp.value.trim();
+            if (key === 'Month') {
+              if (!val) return; // skip blank
+              const d = parseMonth(val);
+              if (!d) { alert(`Invalid month: ${val}. Use MMM YYYY.`); throw new Error('invalid'); }
+              rec[key] = fmtMonth(d);
+            } else {
+              rec[key] = +val || 0;
+            }
+          });
+          if (Object.keys(rec).length) newData.push(rec);
+        }
+        // If no rows, keep previous data to avoid empty wipe
+        if (!newData.length) { alert('No rows to save.'); return; }
+        // Sort, save, and re-render app
+        setData(sortByMonth(newData));
+        renderAll();
+        alert('Changes saved.');
+      };
+    }
+
+    // Render all parts (KPIs, chart, narratives, toggles)
+    function renderAll() {
+      const data = getData();
+      renderKPIs(data);
+      setupToggles(data);
+      renderChart(data, document.querySelector('.toggle.active')?.dataset.chart || 'mrr');
+      renderNarrative(data);
+      renderSheet(data);
+      setupSheet();
+    }
+
+    // Initialize app
+    renderAll();
+    setupModal(getData());
+  </script>
+</body>
+</html>
